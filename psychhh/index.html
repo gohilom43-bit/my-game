@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Truth Comes Out Multiplayer 🎉</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;500;700&display=swap" rel="stylesheet">
+  <style>
+    body {margin:0;min-height:100vh;font-family:'Poppins',sans-serif;display:flex;justify-content:center;align-items:center;background: linear-gradient(135deg,#ff9a9e,#fad0c4,#fbc2eb,#a6c1ee);color:#fff;}
+    .app{width:100%;max-width:480px;padding:20px;}
+    h1{text-align:center;margin-bottom:10px;text-shadow:2px 2px #000;}
+    .card{background: rgba(255,255,255,0.2); border-radius:20px; padding:20px; margin:14px 0; backdrop-filter: blur(10px); box-shadow: 0 10px 30px rgba(0,0,0,0.3);}
+    input,button,select{width:100%;padding:14px;border-radius:12px;border:none;margin-top:10px;font-size:15px;}
+    input{background:#ffffff66;color:#000;font-weight:500;}
+    button{background: linear-gradient(135deg,#ff512f,#dd2476); color:#fff;font-weight:700; cursor:pointer; transition:0.2s;}
+    button:hover{transform:scale(1.05);}
+    .question{text-align:center;font-size:18px;margin-top:10px;text-shadow:1px 1px #000;}
+    .answer{background:#ffffff44;border-radius:12px;padding:12px;margin-top:10px;cursor:pointer;transition:0.2s;color:#000;font-weight:500;}
+    .answer:hover{background:#ffffffaa;}
+    .votes{font-size:13px;color:#00ffd5;}
+    .hidden{display:none;}
+    .score{font-size:14px;color:#ffd86b;}
+    .rounds{display:flex;justify-content:space-between;align-items:center;margin-top:10px;}
+    .rounds input[type=range]{flex:1;margin:0 10px;}
+    .room-code{font-size:20px;text-align:center;margin-top:10px;color:#000;}
+    .popup{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.7);display:flex;justify-content:center;align-items:center;z-index:100;}
+    .popup-content{background:#111;border-radius:16px;padding:30px;text-align:center;max-width:400px;width:90%;}
+    .answer-list .answer {cursor:pointer; margin-bottom:8px;}
+    .highlight {background: #ffd700aa !important;font-weight: 700;transform: scale(1.05);transition: 0.3s;}
+    #finalScores div {transition: transform 0.5s, color 0.5s;}
+    @keyframes drop{to { transform: translateY(100vh); }}
+  </style>
+</head>
+<body>
+<div class="app">
+  <h1>Truth Comes Out Multiplayer 🎉</h1>
+
+  <!-- Join / Create Room -->
+  <div id="join" class="card">
+    <input id="playerName" placeholder="Enter your name">
+    <div class="rounds">
+      <label>Rounds: <span id="roundValue">5</span></label>
+      <input type="range" id="roundSlider" min="3" max="10" step="1" value="5" oninput="roundValue.innerText=this.value">
+    </div>
+    <button onclick="createRoom()">Create Room</button>
+    <input id="roomInput" placeholder="Enter room code">
+    <button onclick="joinRoom()">Join Room</button>
+  </div>
+
+  <!-- Waiting Room -->
+  <div id="waiting" class="card hidden">
+    <div>Room code: <span id="roomCodeDisplay"></span></div>
+    <div>Waiting for other players to join...</div>
+    <button id="startGameBtn" class="hidden" onclick="startGame()">Start Game</button>
+    <div id="playerList"></div>
+  </div>
+
+  <!-- Game Area -->
+  <div id="game" class="hidden">
+    <div class="card">
+      <div class="question" id="questionText"></div>
+    </div>
+    <div class="card" id="answerInputCard">
+      <input id="answerInput" placeholder="Write your answer">
+      <button onclick="submitAnswer()">Submit Answer</button>
+    </div>
+    <div class="card answer-list" id="answersContainer"></div>
+    <button id="readyBtn" class="hidden" onclick="readyUp()">Ready for Next</button>
+    <div class="card" id="scoreContainer"></div>
+    <div class="card" id="voteReveal" class="hidden"></div>
+  </div>
+</div>
+
+<!-- Winner Popup -->
+<div id="winnerPopup" class="popup hidden">
+  <div class="popup-content">
+    <h2 id="winnerText">Winner: </h2>
+    <div id="finalScores"></div>
+    <button onclick="restartGame()">Restart Game</button>
+  </div>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+<script>
+const firebaseConfig = {
+  apiKey: "AIzaSyC1mHOYyzoaYKyruxINBT03AxPYQtmi-6M",
+  authDomain: "truth-game-afaef.firebaseapp.com",
+  databaseURL: "https://truth-game-afaef-default-rtdb.firebaseio.com",
+  projectId: "truth-game-afaef",
+  storageBucket: "truth-game-afaef.firebasestorage.app",
+  messagingSenderId: "516034759928",
+  appId: "1:516034759928:web:e4b4dc67162e575692ff0d",
+  measurementId: "G-ZXBLNW6WEM"
+};
+firebase.initializeApp(firebaseConfig);
+const db = firebase.database();
+
+let roomCode='', myName='', totalRounds=5, currentQuestionIndex=0;
+let currentAnswers={}, currentVotes={}, playersReady={};
+
+const questions=[
+  'If [Name] got a tattoo, what would it be for?',
+  'What is [Name] most insecure about?',
+  'What is [Name] secretly proud of but never says?',
+  'What habit of [Name] would annoy a roommate the most?',
+  'What does [Name] pretend to like but actually hates?',
+  'What is [Name] hiding from most people?',
+  'Who was [Name]’s first real crush?',
+  'What lie does [Name] use most often?',
+  'What is [Name] afraid people might find out?',
+  'What rule has [Name] broken but never admitted?',
+  'What type of person is [Name] most attracted to?',
+  'Why did [Name]’s last relationship really end?',
+  'Who would [Name] never date again?',
+  'What is [Name]’s biggest red flag?',
+  'What kind of partner would [Name] be terrible for?',
+  'What does [Name] secretly want to quit?',
+  'What would [Name] do if money didn’t matter?',
+  'What dream has [Name] given up on?',
+  'Where does [Name] actually want to live?',
+  'What does [Name] envy in others?',
+  'What is [Name] worst at but thinks they’re good at?',
+  'What food does [Name] secretly love?',
+  'What’s [Name]’s most embarrassing moment?',
+  'What app does [Name] spend the most time on?',
+  'What’s [Name]’s weirdest habit?',
+  'What kind of attention does [Name] crave?',
+  'What situation makes [Name] uncomfortable?',
+  'What personality trait of [Name] surprises people?',
+  'How does [Name] react under pressure?',
+  'What does [Name] overthink the most?',
+  'What does [Name] regret not doing?',
+  'What moment changed [Name] the most?',
+  'What fear controls [Name]?',
+  'What does [Name] value more than money?',
+  'What truth about [Name] hurts the most?',
+  'What temptation does [Name] struggle with?',
+  'What would [Name] never admit to their parents?',
+  'What risky decision would [Name] repeat?',
+  'What emotion does [Name] hide best?',
+  'What does [Name] fear losing the most?'
+];
+
+// ---------------- Room & Player Management ----------------
+function createRoom(){
+  myName=document.getElementById('playerName').value.trim();
+  if(!myName)return alert('Enter your name');
+  totalRounds=parseInt(document.getElementById('roundSlider').value);
+  roomCode=Math.random().toString(36).substr(2,5).toUpperCase();
+
+  db.ref('rooms/'+roomCode).set({
+    totalRounds: totalRounds,
+    currentRound: 0,
+    host: myName,
+    gameStarted: false,
+    players: {[myName]: {score:0, ready:false}}
+  }).then(()=>{
+    document.getElementById('join').classList.add('hidden');
+    document.getElementById('waiting').classList.remove('hidden');
+    document.getElementById('roomCodeDisplay').innerText=roomCode;
+    monitorPlayers();
+  });
+}
+
+function joinRoom(){
+  myName=document.getElementById('playerName').value.trim();
+  roomCode=document.getElementById('roomInput').value.trim();
+  if(!myName||!roomCode)return alert('Enter name and room code');
+
+  db.ref('rooms/'+roomCode+'/players/'+myName).set({score:0, ready:false});
+  document.getElementById('join').classList.add('hidden');
+  document.getElementById('waiting').classList.remove('hidden');
+  document.getElementById('roomCodeDisplay').innerText=roomCode;
+  monitorPlayers();
+}
+
+function monitorPlayers(){
+  const startBtn=document.getElementById('startGameBtn');
+  db.ref('rooms/'+roomCode+'/players').on('value',snap=>{
+    const players=snap.val()||{};
+    let listHTML='';
+    Object.keys(players).forEach(p=>listHTML+='<div>'+p+'</div>');
+    document.getElementById('playerList').innerHTML=listHTML;
+  });
+
+  db.ref('rooms/'+roomCode).on('value',snap=>{
+    const data=snap.val();
+    if(!data) return;
+
+    if(data.host===myName && !data.gameStarted) startBtn.classList.remove('hidden');
+    else startBtn.classList.add('hidden');
+
+    if(data.gameStarted){
+      document.getElementById('waiting').classList.add('hidden');
+      document.getElementById('game').classList.remove('hidden');
+
+      if(data.currentRound<totalRounds){
+        showQuestion();
+      }else{
+        showWinner(data.players);
+      }
+    }
+  });
+}
+
+function startGame(){ db.ref('rooms/'+roomCode).update({gameStarted:true}); }
+
+// ---------- Question Flow with Reveal ----------
+function showQuestion(){
+  const dataRef=db.ref('rooms/'+roomCode);
+  dataRef.once('value').then(snap=>{
+    const data=snap.val();
+    const players=Object.keys(data.players);
+    const randomName=players[Math.floor(Math.random()*players.length)];
+    const q=questions[currentQuestionIndex].replace(/\[Name\]/g,randomName);
+    document.getElementById('questionText').innerText=q;
+
+    currentAnswers={};
+    currentVotes={};
+    playersReady={};
+    document.getElementById('answersContainer').innerHTML='';
+    document.getElementById('readyBtn').classList.add('hidden');
+    document.getElementById('answerInputCard').classList.remove('hidden');
+
+    // Show scores
+    const scoreContainer=document.getElementById('scoreContainer');
+    scoreContainer.innerHTML='';
+    Object.keys(data.players).forEach(p=>{
+      const div=document.createElement('div');
+      div.id='score_'+p;
+      div.className='score';
+      div.innerText=p+': '+data.players[p].score;
+      scoreContainer.appendChild(div);
+    });
+  });
+}
+
+function submitAnswer(){
+  const ans=document.getElementById('answerInput').value.trim();
+  if(!ans)return;
+  currentAnswers[myName]=ans;
+  document.getElementById('answerInputCard').classList.add('hidden');
+
+  // Reveal all answers one by one
+  const container=document.getElementById('answersContainer');
+  container.innerHTML='';
+  let i=0;
+  const keys=Object.keys(currentAnswers);
+  function revealNext(){
+    if(i<keys.length){
+      const player=keys[i];
+      const div=document.createElement('div');
+      div.className='answer';
+      div.innerText=currentAnswers[player];
+      div.onclick=()=>voteAnswer(player);
+      container.appendChild(div);
+      i++;
+      setTimeout(revealNext,500);
+    }
+  }
+  revealNext();
+}
+
+// ---------- Voting ----------
+function voteAnswer(player){
+  if(player===myName) return alert("You can't vote for yourself!");
+  if(currentVotes[myName]) return alert("You already voted!");
+  currentVotes[myName]=player;
+
+  db.ref('rooms/'+roomCode+'/players').once('value').then(snap=>{
+    const allPlayers=Object.keys(snap.val());
+    if(Object.keys(currentVotes).length===allPlayers.length){
+      // Show who voted for whom
+      const reveal=document.getElementById('voteReveal');
+      reveal.innerHTML='Votes:<br>';
+      Object.entries(currentVotes).forEach(([voter,voted])=>{
+        reveal.innerHTML+=voter+' voted for '+voted+'<br>';
+      });
+      reveal.classList.remove('hidden');
+
+      // Update scores with animation
+      const scores = {};
+      allPlayers.forEach(p=>scores[p]=snap.val()[p].score);
+      Object.values(currentVotes).forEach(v=>scores[v] += 1);
+      Object.entries(scores).forEach(([p,s])=>{
+        const scoreElem=document.getElementById('score_'+p);
+        if(scoreElem){
+          scoreElem.innerText=p+': '+s;
+          scoreElem.classList.add('highlight');
+          setTimeout(()=>scoreElem.classList.remove('highlight'),700);
+        }
+        db.ref('rooms/'+roomCode+'/players/'+p).update({score:s});
+      });
+
+      document.getElementById('readyBtn').classList.remove('hidden');
+    }
+  });
+}
+
+// ---------- Ready & Next Round ----------
+function readyUp(){
+  playersReady[myName]=true;
+  db.ref('rooms/'+roomCode+'/players').once('value').then(snap=>{
+    const allPlayers=Object.keys(snap.val());
+    if(Object.keys(playersReady).length===allPlayers.length){
+      currentQuestionIndex++;
+      db.ref('rooms/'+roomCode+'/currentRound').transaction(round=>(round||0)+1);
+      if(currentQuestionIndex<totalRounds) showQuestion();
+      else showWinner(snap.val());
+    }else{
+      alert('Waiting for others to be ready...');
+    }
+  });
+}
+
+// ---------- Winner ----------
+function showWinner(players){
+  const scores=[];
+  Object.entries(players).forEach(([name,data])=>scores.push({name,score:data.score}));
+  scores.sort((a,b)=>b.score-a.score);
+  document.getElementById('winnerText').innerText='Winner: '+scores[0].name;
+  document.getElementById('finalScores').innerHTML=scores.map(p=>p.name+': '+p.score).join('<br>');
+  document.getElementById('winnerPopup').classList.remove('hidden');
+  celebrateWinner();
+}
+
+// ---------- Confetti ----------
+function celebrateWinner(){
+  const confettiCount = 150;
+  for(let i=0;i<confettiCount;i++){
+    const conf=document.createElement('div');
+    conf.style.position='fixed';
+    conf.style.width='8px';
+    conf.style.height='8px';
+    conf.style.background=['#FFD700','#FF5733','#33FF57','#33D4FF'][Math.floor(Math.random()*4)];
+    conf.style.left=Math.random()*window.innerWidth+'px';
+    conf.style.top='-10px';
+    conf.style.borderRadius='50%';
+    conf.style.opacity=Math.random();
+    conf.style.zIndex=9999;
+    conf.style.animation='drop 2s linear forwards';
+    document.body.appendChild(conf);
+    setTimeout(()=>conf.remove(),2000);
+  }
+}
+
+// ---------- Restart ----------
+function restartGame(){ location.reload(); }
+</script>
+</body>
+</html>
